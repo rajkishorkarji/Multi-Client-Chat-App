@@ -1,0 +1,18 @@
+Jul 20, 2026 11:58:32 AM com.chatapp.server.ChatServer start
+INFO: Chat server is starting on port 5000
+Jul 20, 2026 12:00:36 PM com.chatapp.server.ClientHandler run
+INFO: Raj joined the chat.
+Jul 20, 2026 12:01:15 PM com.chatapp.server.ClientHandler run
+INFO: Raj joined the chat.
+Jul 20, 2026 12:01:16 PM com.chatapp.server.ClientHandler run
+INFO: [12:01:16] Raj: 
+Jul 20, 2026 12:02:33 PM com.chatapp.server.ClientHandler run
+INFO: [12:02:33] Raj: Amit
+Jul 20, 2026 12:04:06 PM com.chatapp.server.ClientHandler closeConnection
+INFO: Raj left the chat.
+Jul 20, 2026 12:04:21 PM com.chatapp.server.ClientHandler run
+INFO: Raj joined the chat.
+Jul 20, 2026 12:04:37 PM com.chatapp.server.ClientHandler run
+INFO: Amit joined the chat.
+Jul 20, 2026 12:04:45 PM com.chatapp.server.ClientHandler run
+INFO: [12:04:45] Amit: Hello Raj
