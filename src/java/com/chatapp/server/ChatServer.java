@@ -1,92 +1,182 @@
 package com.chatapp.server;
 
-import com.chatapp.model.Message;
 import com.chatapp.util.LoggerUtil;
-import org.slf4j.Logger;
 
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.logging.Logger;
 
 public class ChatServer {
-    private static final Logger logger = LoggerUtil.getLogger(ChatServer.class);
-    private final int port;
-    private final ChatHistoryManager historyManager = new ChatHistorymanager();
-    private final Map<String, ChatHandler> activeUsers = new ConcurrentHashMap<>();
-    private final AtomicBoolean AdminAssigned = new AtomicBoolean(false);
+    private static final Logger LOGGER = LoggerUtil.getLogger(ChatServer.class);
+    private static final int DEFAULT_PORT = 5000;
+    private static final String DEFAULT_HISTORY_FILE = "chat.txt";
 
-    public ChatServer(int port) {
-        this.port = port;
+    private final Map<String, ChatHandler> clients = new ConcurrentHashMap<>();
+    private final List<ChatHandler> joinOrder = new ArrayList<>();
+    private final ChatHistoryManager historyManager;
+
+    public ChatServer(ChatHistoryManager historyManager) {
+        this.historyManager = historyManager;
     }
 
     public static void main(String[] args) {
-        int port = 5000; // Default port
-        if (args.length > 0) {
-           
-                port = Integer.parseInt(args[0]);
-        }
-        new ChatServer(port).start();
+        Properties config = loadConfig();
+        int port = Integer.parseInt(config.getProperty("server.port", String.valueOf(DEFAULT_PORT)));
+        String historyFile = config.getProperty("chat.history.file", DEFAULT_HISTORY_FILE);
+
+        ChatServer server = new ChatServer(new ChatHistoryManager(historyFile));
+        server.start(port);
     }
 
-     public void start() {
-        historyManager.loadFromFile();
+    public void start(int port) {
         try (ServerSocket serverSocket = new ServerSocket(port)) {
-            logger.info("Chat server started on port {}", port);
+            LOGGER.info("Multi Client Chat Server started on port " + port);
+            LOGGER.info("Waiting for clients to join...");
+
             while (true) {
                 Socket socket = serverSocket.accept();
-                ChatHandler handler = new ChatHandler(socket, this);
+                ChatHandler handler = new ChatHandler(this, socket);
                 new Thread(handler).start();
             }
-        } catch (IOException e) {
-            logger.error("Server error: {}", e.getMessage(), e);
+        } catch (IOException ex) {
+            LOGGER.severe("Server stopped: " + ex.getMessage());
         }
-    }
-
-    public synchronized boolean assignAdminIfAvailable(String username, ChatHandler handler) {
-        if (!adminAssigned.get()) {
-            adminAssigned.set(true);
-            activeUsers.put(username, handler);
-            return true;
-        }
-        if (activeUsers.containsKey(username)) {
-            return false;
-        }
-        activeUsers.put(username, handler);
-        return false;
-    }
-
-    public void removeUser(String username) {
-        activeUsers.remove(username);
-    }
-
-    public boolean isOnline(String username) {
-        return activeUsers.containsKey(username);
-    }
-
-    public ChatHandler getUserHandler(String username) {
-        return activeUsers.get(username);
-    }
-
-    public Map<String, ChatHandler> getActiveUsers() {
-        return activeUsers;
     }
 
     public ChatHistoryManager getHistoryManager() {
         return historyManager;
     }
 
-    public void broadcast(Message message) {
-        historyManager.add(message);
-        for (ChatHandler handler : activeUsers.values()) {
-            handler.send(message.toString());
+    public synchronized boolean registerClient(String username, ChatHandler handler) {
+        String key = username.toLowerCase();
+        if (clients.containsKey(key)) {
+            return false;
+        }
+
+        clients.put(key, handler);
+        joinOrder.add(handler);
+        return true;
+    }
+
+    public synchronized void unregisterClient(ChatHandler handler, boolean announceDeparture) {
+        if (handler.getUsername() == null) {
+            return;
+        }
+
+        boolean removed = clients.remove(handler.getUsername().toLowerCase()) != null;
+        joinOrder.remove(handler);
+
+        if (removed && announceDeparture) {
+            broadcast("[System] " + handler.getUsername() + " left the room.");
+        }
+
+        if (removed && handler.isAdmin()) {
+            assignNextAdmin();
         }
     }
 
-    public void broadcastSystem(String text) {
-        broadcast(new Message("SYSTEM", text, true));
+    public synchronized boolean isFirstClient(ChatHandler handler) {
+        return !joinOrder.isEmpty() && joinOrder.get(0) == handler;
     }
-    
+
+    public void broadcast(String message) {
+        for (ChatHandler client : clients.values()) {
+            client.send(message);
+        }
+    }
+
+    public void broadcastExcept(ChatHandler excludedClient, String message) {
+        for (ChatHandler client : clients.values()) {
+            if (client != excludedClient) {
+                client.send(message);
+            }
+        }
+    }
+
+    public String connectedUsers() {
+        List<String> users = clients.values()
+                .stream()
+                .sorted(Comparator.comparing(ChatHandler::getUsername))
+                .map(client -> client.getUsername() + (client.isAdmin() ? " (Admin)" : " (Client)"))
+                .toList();
+
+        return "[System] Online users: " + String.join(", ", users);
+    }
+
+    public void muteUser(String username, boolean muted, ChatHandler admin) {
+        ChatHandler target = findUser(username, admin);
+        if (target == null) {
+            return;
+        }
+
+        if (target.isAdmin()) {
+            admin.send("[System] Admin cannot be muted.");
+            return;
+        }
+
+        target.setMuted(muted);
+        target.send("[System] You are " + (muted ? "muted" : "unmuted") + " by the admin.");
+        broadcastExcept(target, "[System] " + target.getUsername() + " has been " + (muted ? "muted." : "unmuted."));
+    }
+
+    public void kickUser(String username, ChatHandler admin) {
+        ChatHandler target = findUser(username, admin);
+        if (target == null) {
+            return;
+        }
+
+        if (target.isAdmin()) {
+            admin.send("[System] Admin cannot kick himself from the room.");
+            return;
+        }
+
+        broadcastExcept(target, "[System] " + target.getUsername() + " has been removed from the room by admin.");
+        target.kickOut("[System] You are removed from the room by the admin.");
+    }
+
+    private ChatHandler findUser(String username, ChatHandler admin) {
+        if (username == null || username.isBlank()) {
+            admin.send("[System] Please enter a username. Example: \\mute Max");
+            return null;
+        }
+
+        ChatHandler target = clients.get(username.toLowerCase());
+        if (target == null) {
+            admin.send("[System] No online user found with name: " + username);
+        }
+        return target;
+    }
+
+    private synchronized void assignNextAdmin() {
+        if (joinOrder.isEmpty()) {
+            return;
+        }
+
+        ChatHandler nextAdmin = joinOrder.get(0);
+        nextAdmin.setAdmin(true);
+        nextAdmin.send("[System] You are now the admin of this room.");
+        nextAdmin.send("[System] Type \\help to see management commands.");
+        broadcastExcept(nextAdmin, "[System] " + nextAdmin.getUsername() + " is now the room admin.");
+    }
+
+    private static Properties loadConfig() {
+        Properties properties = new Properties();
+
+        try (FileInputStream input = new FileInputStream("server.properties")) {
+            properties.load(input);
+        } catch (IOException ex) {
+            properties.setProperty("server.port", String.valueOf(DEFAULT_PORT));
+            properties.setProperty("chat.history.file", DEFAULT_HISTORY_FILE);
+        }
+
+        return properties;
+    }
 }

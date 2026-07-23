@@ -5,45 +5,56 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.Socket;
+import java.util.Scanner;
 
 public class ChatClient {
+    private static final String DEFAULT_HOST = "localhost";
+    private static final int DEFAULT_PORT = 5000;
+    private static final String INPUT_PROMPT = "> ";
+
     public static void main(String[] args) {
-        String host = "localhost";
-        int port = 5000;
+        String host = args.length > 0 ? args[0] : DEFAULT_HOST;
+        int port = args.length > 1 ? Integer.parseInt(args[1]) : DEFAULT_PORT;
 
-        if (args.length > 0) {
-            host = args[0];
-        }
-        if (args.length > 1) {
-            port = Integer.parseInt(args[1]);
-        }
+        new ChatClient().start(host, port);
+    }
 
-        try (Socket socket = new Socket(host, port);
-             BufferedReader console = new BufferedReader(new InputStreamReader(System.in));
-             BufferedReader serverInput = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-             PrintWriter serverOutput = new PrintWriter(socket.getOutputStream(), true)) {
+    public void start(String host, int port) {
+        System.out.println("[System] Connecting to Multi Client Chat Room...");
 
-            Thread listener = new Thread(() -> {
-                try {
-                    String line;
-                    while ((line = serverInput.readLine()) != null) {
-                        System.out.println(line);
-                    }
-                } catch (IOException ignored) {
-                }
-            });
+        try (
+                Socket socket = new Socket(host, port);
+                BufferedReader serverInput = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+                PrintWriter serverOutput = new PrintWriter(socket.getOutputStream(), true);
+                Scanner scanner = new Scanner(System.in)
+        ) {
+            Thread listener = new Thread(() -> listenToServer(serverInput));
             listener.setDaemon(true);
             listener.start();
 
-            String userInput;
-            while ((userInput = console.readLine()) != null) {
-                serverOutput.println(userInput);
-                if ("/exit".equalsIgnoreCase(userInput.trim())) {
+            while (!socket.isClosed()) {
+                System.out.print(INPUT_PROMPT);
+                String input = scanner.nextLine();
+                serverOutput.println(input);
+
+                if ("\\exit".equalsIgnoreCase(input.trim())) {
                     break;
                 }
             }
-        } catch (IOException e) {
-            System.out.println("Connection error: " + e.getMessage());
+        } catch (IOException ex) {
+            System.out.println("[System] Unable to connect to server: " + ex.getMessage());
+            System.out.println("[System] Please start ChatServer first, then open one or more ChatClient windows.");
+        }
+    }
+
+    private void listenToServer(BufferedReader serverInput) {
+        try {
+            String message;
+            while ((message = serverInput.readLine()) != null) {
+                System.out.println(message);
+            }
+        } catch (IOException ex) {
+            System.out.println("[System] Disconnected from chat room.");
         }
     }
 }
