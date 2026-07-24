@@ -13,3 +13,11 @@
 [Message] Potter (24 Jul 2026, 11:45 am): Hiii
 [System-Event] (24 Jul 2026, 11:45 am): Jonathin muted Potter.
 [System-Event] (24 Jul 2026, 12:12 pm): Potter left the room.
+[System-Event] (25 Jul 2026, 12:05 am): Nancy joined the room.
+[System-Event] (25 Jul 2026, 12:26 am): Rama joined the room.
+[Message] Rama (25 Jul 2026, 12:26 am): Hii
+[System-Event] (25 Jul 2026, 12:27 am): Sam joined the room.
+[System-Event] (25 Jul 2026, 12:36 am): Gora joined the room.
+[System-Event] (25 Jul 2026, 12:37 am): Gamura joined the room.
+[System-Event] (25 Jul 2026, 12:37 am): Helix joined the room.
+[Message] Helix (25 Jul 2026, 12:38 am): Hi

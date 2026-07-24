@@ -43,8 +43,9 @@ public class ChatServer {
 
     public void start(int port) {
         try (ServerSocket serverSocket = new ServerSocket(port)) {
-            LOGGER.info("Multi Client Chat Server started on port " + port);
-            LOGGER.info("Waiting for clients to join...");
+            System.out.println("[System] Multi Client Chat Server started on port " + port);
+            System.out.println("[System] Waiting for clients to join...");
+            System.out.println();
 
             while (true) {
                 Socket socket = serverSocket.accept();
@@ -81,6 +82,7 @@ public class ChatServer {
 
         if (removed && announceDeparture) {
             String msg = "[System] " + handler.getUsername() + " left the room.";
+            System.out.println(msg);
             saveEvent(handler.getUsername() + " left the room.");
             broadcast(msg);
         }
@@ -131,6 +133,7 @@ public class ChatServer {
 
         target.setMuted(muted);
         String action = muted ? "muted" : "unmuted";
+        System.out.println("[System] " + target.getUsername() + " has been " + action + ".");
         target.send("[System] You are " + action + " by the admin.");
         broadcastExcept(target, "[System] " + target.getUsername() + " has been " + action + ".");
         saveEvent(admin.getUsername() + " " + action + " " + target.getUsername() + ".");
@@ -147,6 +150,7 @@ public class ChatServer {
             return;
         }
 
+        System.out.println("[System] " + target.getUsername() + " has been removed from the room by admin.");
         saveEvent(admin.getUsername() + " kicked " + target.getUsername() + " from the room.");
         broadcastExcept(target, "[System] " + target.getUsername() + " has been removed from the room by admin.");
         target.kickOut("[System] You are removed from the room by the admin.");
@@ -172,6 +176,7 @@ public class ChatServer {
 
         ChatHandler nextAdmin = joinOrder.get(0);
         nextAdmin.setAdmin(true);
+        System.out.println("[System] " + nextAdmin.getUsername() + " is now the room admin.");
         nextAdmin.send("[System] You are now the admin of this room.");
         nextAdmin.send("[System] Type \\help to see management commands.");
         broadcastExcept(nextAdmin, "[System] " + nextAdmin.getUsername() + " is now the room admin.");

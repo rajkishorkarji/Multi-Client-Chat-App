@@ -106,6 +106,7 @@ public class ChatHandler implements Runnable {
                 username = requestedName;
                 admin = server.isFirstClient(this);
                 sendWelcomeMessage();
+                System.out.println("[System] " + username + " joined the room.");
                 server.saveEvent(username + " joined the room.");
                 server.broadcastExcept(this, "[System] " + username + " joined the room.");
                 return;
@@ -138,6 +139,7 @@ public class ChatHandler implements Runnable {
 
         Message message = new Message(username, text);
         String formattedMessage = message.formatForRoom();
+        System.out.println(formattedMessage);
         server.getHistoryManager().save(formattedMessage);
         server.broadcast(formattedMessage);
     }
