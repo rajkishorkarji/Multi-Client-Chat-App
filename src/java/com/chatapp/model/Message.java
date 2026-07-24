@@ -19,4 +19,8 @@ public class Message {
     public String formatForRoom() {
         return "[Message] " + sender + " (" + time.format(FORMATTER) + "): " + text;
     }
+
+    public String formatForSender() {
+        return "[Message] You (" + time.format(FORMATTER) + "): " + text;
+    }
 }

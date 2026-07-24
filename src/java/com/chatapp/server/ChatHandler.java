@@ -138,10 +138,14 @@ public class ChatHandler implements Runnable {
         }
 
         Message message = new Message(username, text);
-        String formattedMessage = message.formatForRoom();
-        System.out.println(formattedMessage);
-        server.getHistoryManager().save(formattedMessage);
-        server.broadcast(formattedMessage);
+        String formattedForRoom = message.formatForRoom();
+        String formattedForSender = message.formatForSender();
+
+        System.out.println(formattedForRoom);
+        server.getHistoryManager().save(formattedForRoom);
+
+        send(formattedForSender);
+        server.broadcastExcept(this, formattedForRoom);
     }
 
     private void handleCommand(Command command, String argument) {
