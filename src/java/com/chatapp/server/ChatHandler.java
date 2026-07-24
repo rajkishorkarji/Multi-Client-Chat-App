@@ -106,6 +106,7 @@ public class ChatHandler implements Runnable {
                 username = requestedName;
                 admin = server.isFirstClient(this);
                 sendWelcomeMessage();
+                server.saveEvent(username + " joined the room.");
                 server.broadcastExcept(this, "[System] " + username + " joined the room.");
                 return;
             }
@@ -176,7 +177,7 @@ public class ChatHandler implements Runnable {
             send("  \\mute <username>   Mute a user");
             send("  \\unmute <username> Unmute a user");
             send("  \\kick <username>   Remove a user from the room");
-            send("  \\history           Show previous messages");
+            send("  \\history           Show full history (messages + events)");
             send("  \\exit              Leave the chat room");
         } else {
             send("Available commands:");
@@ -190,15 +191,28 @@ public class ChatHandler implements Runnable {
     }
 
     private void sendHistory() {
-        var history = server.getHistoryManager().readAll();
-        if (history.isEmpty()) {
-            send("[System] No previous messages found.");
-            return;
-        }
-
-        send("[System] Previous messages:");
-        for (String historyLine : history) {
-            send(historyLine);
+        if (admin) {
+            // Admin sees everything: messages + system events
+            var history = server.getHistoryManager().readAll();
+            if (history.isEmpty()) {
+                send("[System] No history found.");
+                return;
+            }
+            send("[System] Full history (messages & events):");
+            for (String line : history) {
+                send(line);
+            }
+        } else {
+            // Client sees only chat messages
+            var history = server.getHistoryManager().readMessagesOnly();
+            if (history.isEmpty()) {
+                send("[System] No previous messages found.");
+                return;
+            }
+            send("[System] Previous messages:");
+            for (String line : history) {
+                send(line);
+            }
         }
     }
 

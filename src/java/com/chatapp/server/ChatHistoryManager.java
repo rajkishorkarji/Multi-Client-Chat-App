@@ -7,6 +7,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Collections;
 import java.util.List;
+import java.util.stream.Collectors;
 
 public class ChatHistoryManager {
     private final Path historyFile;
@@ -39,6 +40,13 @@ public class ChatHistoryManager {
         } catch (IOException ex) {
             return Collections.emptyList();
         }
+    }
+
+    /** Returns only chat message lines (lines starting with "[Message]"). */
+    public synchronized List<String> readMessagesOnly() {
+        return readAll().stream()
+                .filter(line -> line.startsWith("[Message]"))
+                .collect(Collectors.toList());
     }
 
     private void createFileIfMissing() {

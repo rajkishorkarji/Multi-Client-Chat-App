@@ -2,6 +2,9 @@ package com.chatapp.server;
 
 import com.chatapp.util.LoggerUtil;
 
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.net.ServerSocket;
@@ -18,6 +21,8 @@ public class ChatServer {
     private static final Logger LOGGER = LoggerUtil.getLogger(ChatServer.class);
     private static final int DEFAULT_PORT = 5000;
     private static final String DEFAULT_HISTORY_FILE = "chat.txt";
+    private static final DateTimeFormatter EVENT_FORMATTER =
+            DateTimeFormatter.ofPattern("dd MMM yyyy, hh:mm a");
 
     private final Map<String, ChatHandler> clients = new ConcurrentHashMap<>();
     private final List<ChatHandler> joinOrder = new ArrayList<>();
@@ -75,7 +80,9 @@ public class ChatServer {
         joinOrder.remove(handler);
 
         if (removed && announceDeparture) {
-            broadcast("[System] " + handler.getUsername() + " left the room.");
+            String msg = "[System] " + handler.getUsername() + " left the room.";
+            saveEvent(handler.getUsername() + " left the room.");
+            broadcast(msg);
         }
 
         if (removed && handler.isAdmin()) {
@@ -123,8 +130,10 @@ public class ChatServer {
         }
 
         target.setMuted(muted);
-        target.send("[System] You are " + (muted ? "muted" : "unmuted") + " by the admin.");
-        broadcastExcept(target, "[System] " + target.getUsername() + " has been " + (muted ? "muted." : "unmuted."));
+        String action = muted ? "muted" : "unmuted";
+        target.send("[System] You are " + action + " by the admin.");
+        broadcastExcept(target, "[System] " + target.getUsername() + " has been " + action + ".");
+        saveEvent(admin.getUsername() + " " + action + " " + target.getUsername() + ".");
     }
 
     public void kickUser(String username, ChatHandler admin) {
@@ -138,6 +147,7 @@ public class ChatServer {
             return;
         }
 
+        saveEvent(admin.getUsername() + " kicked " + target.getUsername() + " from the room.");
         broadcastExcept(target, "[System] " + target.getUsername() + " has been removed from the room by admin.");
         target.kickOut("[System] You are removed from the room by the admin.");
     }
@@ -165,6 +175,13 @@ public class ChatServer {
         nextAdmin.send("[System] You are now the admin of this room.");
         nextAdmin.send("[System] Type \\help to see management commands.");
         broadcastExcept(nextAdmin, "[System] " + nextAdmin.getUsername() + " is now the room admin.");
+        saveEvent(nextAdmin.getUsername() + " is now the room admin.");
+    }
+
+    /** Persists a system event to the history file with timestamp and [System-Event] tag. */
+    public void saveEvent(String eventDescription) {
+        String timestamp = LocalDateTime.now().format(EVENT_FORMATTER);
+        historyManager.save("[System-Event] (" + timestamp + "): " + eventDescription);
     }
 
     private static Properties loadConfig() {
