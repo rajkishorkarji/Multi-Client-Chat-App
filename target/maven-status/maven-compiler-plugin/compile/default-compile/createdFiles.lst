@@ -4,5 +4,6 @@ com\chatapp\server\ChatHandler.class
 com\chatapp\client\ChatClient.class
 com\chatapp\server\ChatHistoryManager.class
 com\chatapp\server\ChatServer.class
+com\chatapp\util\EmojiUtil.class
 com\chatapp\server\ChatHandler$1.class
 com\chatapp\util\LoggerUtil.class

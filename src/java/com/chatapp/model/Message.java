@@ -1,5 +1,7 @@
 package com.chatapp.model;
 
+import com.chatapp.util.EmojiUtil;
+
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 
@@ -12,7 +14,7 @@ public class Message {
 
     public Message(String sender, String text) {
         this.sender = sender;
-        this.text = text;
+        this.text = EmojiUtil.replaceShortcodes(text);
         this.time = LocalDateTime.now();
     }
 

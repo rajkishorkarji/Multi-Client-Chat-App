@@ -7,6 +7,10 @@ public enum Command {
     UNMUTE,
     KICK,
     HISTORY,
+    CREATEPRIVATE,
+    JOINPRIVATE,
+    LEAVE,
+    ROOMCODE,
     EXIT,
     UNKNOWN;
 

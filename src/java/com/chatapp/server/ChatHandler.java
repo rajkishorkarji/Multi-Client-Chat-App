@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.Socket;
+import java.nio.charset.StandardCharsets;
 
 public class ChatHandler implements Runnable {
     private final ChatServer server;
@@ -28,8 +29,8 @@ public class ChatHandler implements Runnable {
     @Override
     public void run() {
         try {
-            input = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-            output = new PrintWriter(socket.getOutputStream(), true);
+            input = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
+            output = new PrintWriter(socket.getOutputStream(), true, StandardCharsets.UTF_8);
 
             loginUser();
 
@@ -105,10 +106,7 @@ public class ChatHandler implements Runnable {
             if (server.registerClient(requestedName, this)) {
                 username = requestedName;
                 admin = server.isFirstClient(this);
-                sendWelcomeMessage();
-                System.out.println("[System] " + username + " joined the room.");
-                server.saveEvent(username + " joined the room.");
-                server.broadcastExcept(this, "[System] " + username + " joined the room.");
+                joinPublicLobby();
                 return;
             }
 
@@ -116,10 +114,10 @@ public class ChatHandler implements Runnable {
         }
     }
 
-    private void sendWelcomeMessage() {
+    private void joinPublicLobby() {
         send("");
         send("[System] Welcome, " + username + ".");
-        send("[System] You joined the chat room.");
+        send("[System] You joined the public chat lobby.");
 
         if (admin) {
             send("[System] You are the room admin.");
@@ -129,6 +127,9 @@ public class ChatHandler implements Runnable {
         }
 
         send("");
+        System.out.println("[System] " + username + " joined the public lobby.");
+        server.saveEvent(username + " joined the public lobby.");
+        server.broadcastPublicExcept(this, "[System] " + username + " joined the public lobby.");
     }
 
     private void sendChatMessage(String text) {
@@ -140,12 +141,21 @@ public class ChatHandler implements Runnable {
         Message message = new Message(username, text);
         String formattedForRoom = message.formatForRoom();
         String formattedForSender = message.formatForSender();
+        String roomCode = server.privateRoomCodeFor(this);
 
-        System.out.println(formattedForRoom);
-        server.getHistoryManager().save(formattedForRoom);
+        if (roomCode == null) {
+            System.out.println(formattedForRoom);
+            server.getHistoryManager().save(formattedForRoom);
+            send(formattedForSender);
+            server.broadcastPublicExcept(this, formattedForRoom);
+            return;
+        }
 
-        send(formattedForSender);
-        server.broadcastExcept(this, formattedForRoom);
+        String privateMessage = "[Private " + roomCode + "] " + formattedForRoom;
+        System.out.println(privateMessage);
+        server.getHistoryManager().save(privateMessage);
+        send("[Private " + roomCode + "] " + formattedForSender);
+        server.broadcastPrivateRoomExcept(this, privateMessage);
     }
 
     private void handleCommand(Command command, String argument) {
@@ -153,6 +163,10 @@ public class ChatHandler implements Runnable {
             case HELP -> sendHelp();
             case USERS -> send(server.connectedUsers());
             case HISTORY -> sendHistory();
+            case CREATEPRIVATE -> server.createPrivateRoom(this);
+            case JOINPRIVATE -> server.joinPrivateRoom(argument, this);
+            case LEAVE -> server.leavePrivateRoom(this, true);
+            case ROOMCODE -> sendCurrentRoomCode();
             case EXIT -> disconnect("[System] You left the chat room. Goodbye.");
             case MUTE, UNMUTE, KICK -> handleAdminCommand(command, argument);
             default -> send("[System] Unknown command. Type \\help to see available commands.");
@@ -179,37 +193,53 @@ public class ChatHandler implements Runnable {
         if (admin) {
             send("Management commands:");
             send("  \\help              Show management commands");
-            send("  \\users             Show online users");
-            send("  \\mute <username>   Mute a user");
+            send("  \\users             Show online users in public/private rooms");
+            send("  \\createprivate     Create a private room and generate a code");
+            send("  \\joinprivate <code> Join a private room using a code");
+            send("  \\leave             Leave private room and return to public lobby");
+            send("  \\roomcode          Show your current private room code");
+            send("  \\mute <username>   Mute a user in public/private chat");
             send("  \\unmute <username> Unmute a user");
-            send("  \\kick <username>   Remove a user from the room");
-            send("  \\history           Show full history (messages + events)");
+            send("  \\kick <username>   Remove a user from the server");
+            send("  \\history           Show full public/private history and events");
             send("  \\exit              Leave the chat room");
         } else {
             send("Available commands:");
-            send("  \\help              Show available commands");
-            send("  \\users             Show online users");
-            send("  \\history           Show previous messages");
-            send("  \\exit              Leave the chat room");
+            send("  \\help       Show available commands");
+            send("  \\users      Show online users");
+            send("  \\createprivate        Create a private room and generate a code");
+            send("  \\joinprivate <code>   Join a private room using a code");
+            send("  \\leave                Leave private room and return to public lobby");
+            send("  \\roomcode   Show your current private room code");
+            send("  \\history    Show previous public messages");
+            send("  \\exit       Leave the chat room");
         }
 
         send("");
     }
 
+    private void sendCurrentRoomCode() {
+        String roomCode = server.privateRoomCodeFor(this);
+        if (roomCode == null) {
+            send("[System] You are in the public lobby. Use \\createprivate to generate a private room code.");
+            return;
+        }
+
+        send("[System] Current private room code: " + roomCode);
+    }
+
     private void sendHistory() {
         if (admin) {
-            // Admin sees everything: messages + system events
             var history = server.getHistoryManager().readAll();
             if (history.isEmpty()) {
                 send("[System] No history found.");
                 return;
             }
-            send("[System] Full history (messages & events):");
+            send("[System] Full history (public/private messages & events):");
             for (String line : history) {
                 send(line);
             }
         } else {
-            // Client sees only chat messages
             var history = server.getHistoryManager().readMessagesOnly();
             if (history.isEmpty()) {
                 send("[System] No previous messages found.");
@@ -236,3 +266,4 @@ public class ChatHandler implements Runnable {
         }
     }
 }
+

@@ -7,13 +7,17 @@ import java.time.format.DateTimeFormatter;
 
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.PrintStream;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
 
@@ -21,11 +25,16 @@ public class ChatServer {
     private static final Logger LOGGER = LoggerUtil.getLogger(ChatServer.class);
     private static final int DEFAULT_PORT = 5000;
     private static final String DEFAULT_HISTORY_FILE = "chat.txt";
+    private static final String ROOM_CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    private static final int ROOM_CODE_LENGTH = 6;
+    private static final SecureRandom RANDOM = new SecureRandom();
     private static final DateTimeFormatter EVENT_FORMATTER =
             DateTimeFormatter.ofPattern("dd MMM yyyy, hh:mm a");
 
     private final Map<String, ChatHandler> clients = new ConcurrentHashMap<>();
     private final List<ChatHandler> joinOrder = new ArrayList<>();
+    private final Map<String, Set<ChatHandler>> privateRooms = new ConcurrentHashMap<>();
+    private final Map<ChatHandler, String> clientRooms = new ConcurrentHashMap<>();
     private final ChatHistoryManager historyManager;
 
     public ChatServer(ChatHistoryManager historyManager) {
@@ -33,6 +42,7 @@ public class ChatServer {
     }
 
     public static void main(String[] args) {
+        configureUtf8Console();
         Properties config = loadConfig();
         int port = Integer.parseInt(config.getProperty("server.port", String.valueOf(DEFAULT_PORT)));
         String historyFile = config.getProperty("chat.history.file", DEFAULT_HISTORY_FILE);
@@ -77,6 +87,8 @@ public class ChatServer {
             return;
         }
 
+        leavePrivateRoom(handler, false);
+
         boolean removed = clients.remove(handler.getUsername().toLowerCase()) != null;
         joinOrder.remove(handler);
 
@@ -110,14 +122,98 @@ public class ChatServer {
         }
     }
 
+    public void broadcastPublicExcept(ChatHandler excludedClient, String message) {
+        for (ChatHandler client : clients.values()) {
+            if (client != excludedClient && !clientRooms.containsKey(client)) {
+                client.send(message);
+            }
+        }
+    }
+
+    public void broadcastPrivateRoomExcept(ChatHandler sender, String message) {
+        String roomCode = clientRooms.get(sender);
+        if (roomCode == null) {
+            return;
+        }
+
+        Set<ChatHandler> members = privateRooms.get(roomCode);
+        if (members == null) {
+            return;
+        }
+
+        for (ChatHandler member : members) {
+            if (member != sender) {
+                member.send(message);
+            }
+        }
+    }
+
     public String connectedUsers() {
         List<String> users = clients.values()
                 .stream()
                 .sorted(Comparator.comparing(ChatHandler::getUsername))
-                .map(client -> client.getUsername() + (client.isAdmin() ? " (Admin)" : " (Client)"))
+                .map(client -> client.getUsername() + (client.isAdmin() ? " (Admin)" : ""))
                 .toList();
 
         return "[System] Online users: " + String.join(", ", users);
+    }
+
+    public String createPrivateRoom(ChatHandler owner) {
+        String roomCode = generateUniqueRoomCode();
+        moveToRoom(owner, roomCode);
+        owner.send("[System] Private room is ready. Invite code: " + roomCode);
+        saveEvent(owner.getUsername() + " created private room " + roomCode + ".");
+        return roomCode;
+    }
+
+    public boolean joinPrivateRoom(String roomCode, ChatHandler client) {
+        String normalizedCode = normalizeRoomCode(roomCode);
+        if (normalizedCode.isBlank()) {
+            client.send("[System] Please enter a room code. Example: \\joinprivate A1B2C3");
+            return false;
+        }
+
+        if (!privateRooms.containsKey(normalizedCode)) {
+            client.send("[System] No private room found for code: " + normalizedCode);
+            return false;
+        }
+
+        moveToRoom(client, normalizedCode);
+        client.send("[System] You joined private room " + normalizedCode + ".");
+        broadcastPrivateRoomExcept(client, "[System] " + client.getUsername() + " joined private room " + normalizedCode + ".");
+        saveEvent(client.getUsername() + " joined private room " + normalizedCode + ".");
+        return true;
+    }
+
+    public void leavePrivateRoom(ChatHandler client, boolean notifyClient) {
+        String roomCode = clientRooms.remove(client);
+        if (roomCode == null) {
+            if (notifyClient) {
+                client.send("[System] You are already in the public room.");
+            }
+            return;
+        }
+
+        Set<ChatHandler> members = privateRooms.get(roomCode);
+        if (members != null) {
+            members.remove(client);
+            if (members.isEmpty()) {
+                privateRooms.remove(roomCode);
+            } else {
+                for (ChatHandler member : members) {
+                    member.send("[System] " + client.getUsername() + " left private room " + roomCode + ".");
+                }
+            }
+        }
+
+        if (notifyClient) {
+            client.send("[System] You left private room " + roomCode + " and returned to the public room.");
+        }
+        saveEvent(client.getUsername() + " left private room " + roomCode + ".");
+    }
+
+    public String privateRoomCodeFor(ChatHandler client) {
+        return clientRooms.get(client);
     }
 
     public void muteUser(String username, boolean muted, ChatHandler admin) {
@@ -156,6 +252,29 @@ public class ChatServer {
         target.kickOut("[System] You are removed from the room by the admin.");
     }
 
+    private void moveToRoom(ChatHandler client, String roomCode) {
+        leavePrivateRoom(client, false);
+        privateRooms.computeIfAbsent(roomCode, ignored -> ConcurrentHashMap.newKeySet()).add(client);
+        clientRooms.put(client, roomCode);
+    }
+
+    private String generateUniqueRoomCode() {
+        String code;
+        do {
+            StringBuilder builder = new StringBuilder(ROOM_CODE_LENGTH);
+            for (int i = 0; i < ROOM_CODE_LENGTH; i++) {
+                builder.append(ROOM_CODE_CHARS.charAt(RANDOM.nextInt(ROOM_CODE_CHARS.length())));
+            }
+            code = builder.toString();
+        } while (privateRooms.containsKey(code));
+        return code;
+    }
+
+    private String normalizeRoomCode(String roomCode) {
+        return roomCode == null ? "" : roomCode.trim().toUpperCase();
+    }
+
+
     private ChatHandler findUser(String username, ChatHandler admin) {
         if (username == null || username.isBlank()) {
             admin.send("[System] Please enter a username. Example: \\mute Max");
@@ -189,6 +308,14 @@ public class ChatServer {
         historyManager.save("[System-Event] (" + timestamp + "): " + eventDescription);
     }
 
+
+    private static void configureUtf8Console() {
+        try {
+            System.setOut(new PrintStream(System.out, true, StandardCharsets.UTF_8));
+            System.setErr(new PrintStream(System.err, true, StandardCharsets.UTF_8));
+        } catch (Exception ignored) {
+        }
+    }
     private static Properties loadConfig() {
         Properties properties = new Properties();
 
@@ -202,3 +329,4 @@ public class ChatServer {
         return properties;
     }
 }
+
